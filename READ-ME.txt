@@ -1,1 +1,8 @@
-Double-click index.html to open in Chrome (internet needed for fonts).
+Open in a browser from GitHub Pages:
+https://kishoreraams100.github.io/saraswati-portfolio/
+
+Local: serve the folder so the site is at /saraswati-portfolio/
+(for example python3 -m http.server from the parent directory).
+
+Fonts need an internet connection. Edit copy in index.html and js/data.js.
+Styles live in css/styles.css. Behaviour lives in js/main.js.
