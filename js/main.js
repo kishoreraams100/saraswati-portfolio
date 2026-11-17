@@ -6,16 +6,17 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+  function viewportH() {
+    return Math.round((window.visualViewport && window.visualViewport.height) || window.innerHeight);
+  }
   function setVh(force) {
-    const next = window.innerHeight;
+    const next = viewportH();
     const prev = parseFloat(document.documentElement.dataset.vh || "0");
     if (!force && prev && Math.abs(next - prev) < 80) return;
     document.documentElement.dataset.vh = String(next);
     document.documentElement.style.setProperty("--vh", next + "px");
+    layoutWipe();
   }
-  setVh(true);
-  window.addEventListener("resize", () => setVh(false), { passive: true });
-  window.addEventListener("orientationchange", () => setTimeout(() => setVh(true), 250));
 
   /* ---------- nav ---------- */
   const nav = $(".nav");
@@ -47,7 +48,7 @@
   /* ---------- hero type-in ---------- */
   requestAnimationFrame(() => document.body.classList.add("is-ready"));
 
-  /* ---------- signature wipe ---------- */
+  /* ---------- signature wipe (always pinned; never a stacked gallery) ---------- */
   const wipeSlides = S.wipeIds.map((id) => S.projects.find((p) => p.id === id));
   const WAVE_AMP = 6;
   const slideCount = wipeSlides.length;
@@ -72,6 +73,11 @@
     return "polygon(0% 100%, " + pts.join(", ") + ", 100% 100%)";
   }
 
+  function setClip(el, value) {
+    el.style.webkitClipPath = value;
+    el.style.clipPath = value;
+  }
+
   const wipe = $("#projects");
   const stick = $(".wipe-stick");
   const capEm = $(".wipe-cap em");
@@ -79,28 +85,23 @@
   const capSmall = $(".wipe-cap small");
   const layers = [];
 
+  function layoutWipe() {
+    if (!wipe || !stick) return;
+    const vh = viewportH();
+    wipe.style.height = slideCount * vh + "px";
+    stick.style.height = vh + "px";
+  }
+
   function buildWipe() {
     if (!wipe || !stick) return;
+    wipe.className = "wipe";
     document.documentElement.style.setProperty("--wipe-slides", String(slideCount));
-    if (reduce.matches) {
-      wipe.className = "wipe-static";
-      wipe.style.height = "";
-      wipe.innerHTML =
-        '<h2 class="h2 wrap">Selected Projects</h2>' +
-        wipeSlides
-          .map(
-            (s) =>
-              `<figure><img src="${img(s.cover)}" alt="${s.title}: ${s.subtitle}"><figcaption>${s.title} · ${s.subtitle}</figcaption></figure>`
-          )
-          .join("");
-      return;
-    }
     const shade = stick.querySelector(".wipe-shade");
     wipeSlides.forEach((s, i) => {
       const layer = document.createElement("div");
       layer.className = "wipe-layer";
       layer.style.zIndex = String(i);
-      layer.style.clipPath = i === 0 ? "none" : waveClip(0);
+      setClip(layer, i === 0 ? "none" : waveClip(0));
       layer.innerHTML = `<div class="wipe-img"><img src="${img(s.cover)}" alt="${s.title}: ${s.subtitle}"></div>`;
       stick.insertBefore(layer, shade);
       layers.push({
@@ -109,12 +110,14 @@
         project: s
       });
     });
+    layoutWipe();
     applyWipe(0);
   }
 
   function wipeT() {
     const rect = wipe.getBoundingClientRect();
-    const total = wipe.offsetHeight - window.innerHeight;
+    const vh = viewportH();
+    const total = wipe.offsetHeight - vh;
     if (total <= 0) return 0;
     return Math.min(1, Math.max(0, -rect.top / total));
   }
@@ -124,9 +127,9 @@
     layers.forEach((layer, i) => {
       const p = layerProgress(i, t);
       const next = i < slideCount - 1 ? layerProgress(i + 1, t) : 0;
-      if (i === 0) layer.el.style.clipPath = "none";
-      else if (p >= 1) layer.el.style.clipPath = "inset(0)";
-      else layer.el.style.clipPath = waveClip(p);
+      if (i === 0) setClip(layer.el, "none");
+      else if (p >= 1) setClip(layer.el, "inset(0)");
+      else setClip(layer.el, waveClip(p));
       layer.img.style.transform = `translate3d(0, ${(-5 * next).toFixed(2)}%, 0) scale(${(1.1 - 0.1 * p).toFixed(4)})`;
     });
     const idx = Math.min(slideCount - 1, Math.round(t / step));
@@ -140,33 +143,43 @@
   }
 
   let wipeRaf = 0;
+  function tickWipe() {
+    const y = window.scrollY || window.pageYOffset || 0;
+    const heroImg = $(".hero-img");
+    if (heroImg && !reduce.matches) {
+      const hero = $("#hero");
+      const h = hero ? hero.offsetHeight : 1;
+      const p = Math.min(1, Math.max(0, y / h));
+      heroImg.style.transform = `translate3d(0, ${p * 18}%, 0) scale(1)`;
+    }
+    const line = $(".tl-line i");
+    const timeline = $(".timeline");
+    if (line && timeline) {
+      const r = timeline.getBoundingClientRect();
+      const vis = Math.min(1, Math.max(0, (viewportH() * 0.7 - r.top) / r.height));
+      line.style.transform = `scaleY(${vis})`;
+    }
+    if (layers.length) applyWipe(wipeT());
+  }
   function onScroll() {
     if (wipeRaf) return;
     wipeRaf = requestAnimationFrame(() => {
       wipeRaf = 0;
-      const y = window.scrollY || 0;
-      const heroImg = $(".hero-img");
-      if (heroImg && !reduce.matches) {
-        const hero = $("#hero");
-        const h = hero ? hero.offsetHeight : 1;
-        const p = Math.min(1, Math.max(0, y / h));
-        heroImg.style.transform = `translate3d(0, ${p * 18}%, 0) scale(1)`;
-      }
-      const line = $(".tl-line i");
-      const timeline = $(".timeline");
-      if (line && timeline) {
-        const r = timeline.getBoundingClientRect();
-        const vis = Math.min(1, Math.max(0, (window.innerHeight * 0.7 - r.top) / r.height));
-        line.style.transform = `scaleY(${vis})`;
-      }
-      if (!reduce.matches && layers.length) applyWipe(wipeT());
+      tickWipe();
     });
   }
   window.addEventListener("scroll", onScroll, { passive: true });
-  window.addEventListener("touchmove", onScroll, { passive: true });
+  document.addEventListener("touchmove", onScroll, { passive: true });
+  document.addEventListener("touchend", onScroll, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("scroll", onScroll, { passive: true });
+  }
+  window.addEventListener("resize", () => setVh(false), { passive: true });
+  window.addEventListener("orientationchange", () => setTimeout(() => setVh(true), 250));
 
   buildWipe();
-  onScroll();
+  setVh(true);
+  tickWipe();
 
   /* ---------- rails ---------- */
   function mountRail(rail) {
@@ -415,5 +428,4 @@
     $$(".reveal, .reveal-left, .clip-reveal").forEach((el) => el.classList.add("is-in"));
   }
 
-  reduce.addEventListener("change", () => location.reload());
 })();
